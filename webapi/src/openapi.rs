@@ -13,6 +13,7 @@ pub mod example_route {
         extract::State(state): extract::State<AppState>,
         Session { user }: Session,
     ) -> String {
+        println!("hello");
         "Hello, world!".to_string()
     }
 }
