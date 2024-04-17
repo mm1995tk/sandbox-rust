@@ -25,7 +25,7 @@ impl ReqScopedState {
         Self {
             req_id,
             session,
-            ts: DateTime::from_timestamp_micros(req_id.timestamp_ms() as i64).unwrap(),
+            ts: DateTime::from_timestamp_millis(req_id.timestamp_ms() as i64).unwrap(),
         }
     }
 }
