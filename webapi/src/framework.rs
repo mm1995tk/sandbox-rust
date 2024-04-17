@@ -1,6 +1,9 @@
 use axum::{
-    async_trait, extract,
-    http::{request::Parts, Response},
+    async_trait,
+    body::Body,
+    extract,
+    http::{request::Parts, Response, StatusCode},
+    response::IntoResponse,
 };
 use chrono::{DateTime, Utc};
 use ulid::Ulid;
@@ -64,7 +67,7 @@ where
     S: Send + Sync,
     // AppState: FromRef<S>,
 {
-    type Rejection = Response<String>;
+    type Rejection = Response<Body>;
 
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
         let ctx = if let Some(item) = parts.extensions.get::<ReqScopedState>() {
@@ -74,7 +77,9 @@ where
         };
 
         // let app_state = AppState::from_ref(state);
-        ctx.session.ok_or(Response::new("ハズレ".to_string()))
+
+        ctx.session
+            .ok_or((StatusCode::UNAUTHORIZED, "ハズレ").into_response())
     }
 }
 

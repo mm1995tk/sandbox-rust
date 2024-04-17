@@ -1,31 +1,32 @@
-use axum::{extract, http::StatusCode, middleware, response, Router};
+use axum::{extract, http::StatusCode, middleware, response::{self, Response}, Router};
 use axum_extra::extract::CookieJar;
 use chrono::Utc;
 use ulid::Ulid;
 use webapi::{
-    framework::{self, ReqScopedState},
+    framework::{self, AppState, ReqScopedState},
     openapi::example_route,
+    settings::SESSION_ID_KEY,
 };
 
 #[tokio::main]
 async fn main() {
-    match tokio::net::TcpListener::bind("0.0.0.0:3000").await {
-        Err(e) => {
-            println!("{}", e);
-        }
-        Ok(listener) => {
-            if let Err(e) = axum::serve(listener, mk_router()).await {
-                println!("{}", e);
-            }
-        }
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+        .await
+        .expect("server can run");
+
+    if let Err(e) = axum::serve(listener, mk_router()).await {
+        println!("{}", e);
     }
 }
 
 fn mk_router() -> Router {
-    let shared_state = framework::AppState;
+    let shared_state = AppState;
 
     Router::new()
-        .nest(example_route::PATH, example_route::mk_router())
+        .nest(
+            example_route::PATH,
+            example_route::mk_router().route_layer(middleware::from_fn(auth)),
+        )
         .layer(middleware::from_fn(log))
         .layer(middleware::from_fn(setup))
         .with_state(shared_state)
@@ -39,26 +40,44 @@ async fn setup(
     let jar = CookieJar::from_headers(req.headers());
     let req_id: Ulid = Ulid::new();
 
-    let mut req_scoped_state = framework::ReqScopedState::new(req_id, None);
+    let mut req_scoped_state = ReqScopedState::new(req_id, None);
 
-    if let Some(session_id) = jar.get("session-id").map(|c| c.value()) {
+    if let Some(session_id) = jar.get(SESSION_ID_KEY).map(|c| c.value()) {
         req_scoped_state.session = framework::find_session(session_id).await;
     }
+
     req.extensions_mut().insert(req_scoped_state);
 
     Ok(next.run(req).await)
 }
 
 async fn log(
-    mut req: extract::Request,
+    req: extract::Request,
     next: middleware::Next,
-) -> Result<response::Response, StatusCode> {
-    if let Some(item) = req.extensions().get::<ReqScopedState>() {
-        println!("hi, {}", item.ts);
-        let r = next.run(req).await;
-        println!("bye, {}", Utc::now());
-        return Ok(r);
-    }
+) -> Result<Response, StatusCode> {
+    let item = req
+        .extensions()
+        .get::<ReqScopedState>()
+        .expect("setup is already done.");
 
-    panic!("not-setup")
+    println!("hi, {}", item.ts);
+    let r = next.run(req).await;
+    println!("bye, {}", Utc::now());
+    return Ok(r);
+}
+
+async fn auth(
+    req: extract::Request,
+    next: middleware::Next,
+) -> Result<Response, StatusCode> {
+    let item = req
+        .extensions()
+        .get::<ReqScopedState>()
+        .expect("setup is already done.");
+
+    if item.session.is_some() {
+        Ok(next.run(req).await)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
 }
