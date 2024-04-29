@@ -6,11 +6,14 @@ use axum::{
     response::IntoResponse,
 };
 use chrono::{DateTime, Utc};
+use sea_orm::DatabaseConnection;
 use ulid::Ulid;
 
 /// アプリケーション全体での共有する状態. DBコネクションなどを持たせる.
 #[derive(Clone)]
-pub struct AppState;
+pub struct AppState {
+    pub db_client: DatabaseConnection,
+}
 
 /// リクエストごとに分離された状態.
 #[derive(Clone, Debug)]
