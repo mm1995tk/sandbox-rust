@@ -8,7 +8,7 @@ use axum::{
 use axum::{routing, Router};
 use axum_extra::extract::{cookie::Cookie, CookieJar};
 use reqwest::{Client, RequestBuilder};
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -71,12 +71,43 @@ async fn handler(
 #[derive(Deserialize)]
 struct Params {
     code: String,
+    state: String,
 }
 async fn callback_handler(
-    Query(Params { code }): Query<Params>,
-    extract::State(state): extract::State<AppState>,
-) -> impl IntoResponse {
-    println!("code: {code}");
+    Query(params): Query<Params>,
+    extract::State(app_state): extract::State<AppState>,
+    jar: CookieJar,
+) -> Result<Response, ErrorResponse> {
+    let state_key = jar.get(OPENID_CONNECT_STATE_KEY).map(|c| c.value());
 
-    Redirect::to("http://localhost:3000/login")
+    if state_key.is_none() {
+        return Err(StatusCode::UNAUTHORIZED.into());
+    }
+
+    let state_key = state_key.unwrap();
+
+    let openid_connect_state = openid_connect_states::Entity::find_by_id(state_key)
+        .one(&app_state.db_client)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "b").into_response())?;
+
+    if openid_connect_state.is_none() {
+        return Err(StatusCode::UNAUTHORIZED.into());
+    }
+
+    let openid_connect_state = openid_connect_state.unwrap();
+
+    if openid_connect_state.state != params.state {
+        return Err(StatusCode::UNAUTHORIZED.into());
+    }
+
+    openid_connect_state
+        .into_active_model()
+        .delete(&app_state.db_client)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "b").into_response())?;
+
+    // TODO: codeの検証
+
+    Ok(Redirect::to("http://localhost:3000/login").into_response())
 }
