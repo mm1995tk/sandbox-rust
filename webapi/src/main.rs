@@ -1,10 +1,17 @@
-use axum::{extract, http::StatusCode, middleware, response::{self, Response}, Router};
+use axum::{
+    extract,
+    http::StatusCode,
+    middleware,
+    response::{self, Response},
+    Router,
+};
 use axum_extra::extract::CookieJar;
 use chrono::Utc;
 use ulid::Ulid;
 use webapi::{
     framework::{self, AppState, ReqScopedState},
     openapi::example_route,
+    openid_connect,
     settings::SESSION_ID_KEY,
 };
 
@@ -27,6 +34,7 @@ fn mk_router() -> Router {
             example_route::PATH,
             example_route::mk_router().route_layer(middleware::from_fn(auth)),
         )
+        .nest(openid_connect::PATH, openid_connect::mk_router())
         .layer(middleware::from_fn(log))
         .layer(middleware::from_fn(setup))
         .with_state(shared_state)
@@ -51,10 +59,7 @@ async fn setup(
     Ok(next.run(req).await)
 }
 
-async fn log(
-    req: extract::Request,
-    next: middleware::Next,
-) -> Result<Response, StatusCode> {
+async fn log(req: extract::Request, next: middleware::Next) -> Result<Response, StatusCode> {
     let item = req
         .extensions()
         .get::<ReqScopedState>()
@@ -66,10 +71,7 @@ async fn log(
     return Ok(r);
 }
 
-async fn auth(
-    req: extract::Request,
-    next: middleware::Next,
-) -> Result<Response, StatusCode> {
+async fn auth(req: extract::Request, next: middleware::Next) -> Result<Response, StatusCode> {
     let item = req
         .extensions()
         .get::<ReqScopedState>()
