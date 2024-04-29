@@ -1,16 +1,13 @@
-use crate::{db::openid_connect_states, framework::AppState, settings::OPENID_CONNECT_STATE_KEY};
+use crate::{framework::AppState, settings::OPENID_CONNECT_STATE_KEY};
 use axum::{
     extract::{self, Query},
     http::StatusCode,
-    response::{self, ErrorResponse, IntoResponse, Redirect, Response},
-    Error,
+    response::{ErrorResponse, IntoResponse, Redirect, Response},
 };
 use axum::{routing, Router};
 use axum_extra::extract::{cookie::Cookie, CookieJar};
-use reqwest::{Client, RequestBuilder};
-use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// パス
 pub const PATH: &'static str = "/openid-connect";
@@ -27,18 +24,12 @@ async fn handler(
     jar: CookieJar,
 ) -> Result<Response, ErrorResponse> {
     let csrf_token = ulid::Ulid::new().to_string();
-    let sid = ulid::Ulid::new().to_string();
 
-    let t = openid_connect_states::ActiveModel {
-        sid: Set(sid.clone()),
-        state: Set(csrf_token.clone()),
-    };
+    let mut cookie = Cookie::new(OPENID_CONNECT_STATE_KEY, csrf_token.clone());
+    cookie.set_secure(true);
+    cookie.set_http_only(true);
 
-    t.insert(&state.db_client)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let jar = jar.add(Cookie::new(OPENID_CONNECT_STATE_KEY, sid));
+    let jar = jar.add(cookie);
     let authorization_endpoint =
         reqwest::get("https://accounts.google.com/.well-known/openid-configuration")
             .await
@@ -78,36 +69,19 @@ async fn callback_handler(
     extract::State(app_state): extract::State<AppState>,
     jar: CookieJar,
 ) -> Result<Response, ErrorResponse> {
-    let state_key = jar.get(OPENID_CONNECT_STATE_KEY).map(|c| c.value());
+    let state = if let Some(v) = jar.get(OPENID_CONNECT_STATE_KEY) {
+        v
+    } else {
+        return Err(StatusCode::UNAUTHORIZED.into());
+    };
 
-    if state_key.is_none() {
+    if state.value() != params.state {
         return Err(StatusCode::UNAUTHORIZED.into());
     }
 
-    let state_key = state_key.unwrap();
-
-    let openid_connect_state = openid_connect_states::Entity::find_by_id(state_key)
-        .one(&app_state.db_client)
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "b").into_response())?;
-
-    if openid_connect_state.is_none() {
-        return Err(StatusCode::UNAUTHORIZED.into());
-    }
-
-    let openid_connect_state = openid_connect_state.unwrap();
-
-    if openid_connect_state.state != params.state {
-        return Err(StatusCode::UNAUTHORIZED.into());
-    }
-
-    openid_connect_state
-        .into_active_model()
-        .delete(&app_state.db_client)
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "b").into_response())?;
+    let new_jar = jar.clone().remove(state.clone());
 
     // TODO: codeの検証
 
-    Ok(Redirect::to("http://localhost:3000/login").into_response())
+    Ok((new_jar, Redirect::to("http://localhost:3000/login")).into_response())
 }
