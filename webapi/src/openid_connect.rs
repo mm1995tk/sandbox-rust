@@ -1,6 +1,6 @@
 use crate::{db::openid_connect_states, framework::AppState, settings::OPENID_CONNECT_STATE_KEY};
 use axum::{
-    extract,
+    extract::{self, Query},
     http::StatusCode,
     response::{self, ErrorResponse, IntoResponse, Redirect, Response},
     Error,
@@ -9,6 +9,7 @@ use axum::{routing, Router};
 use axum_extra::extract::{cookie::Cookie, CookieJar};
 use reqwest::{Client, RequestBuilder};
 use sea_orm::{ActiveModelTrait, Set};
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 /// パス
@@ -67,7 +68,15 @@ async fn handler(
     Ok((jar, Redirect::to(&client_redirct_url.to_string())).into_response())
 }
 
-async fn callback_handler(extract::State(state): extract::State<AppState>) -> impl IntoResponse {
-    println!("kkkkkkkkdddd");
-    StatusCode::NO_CONTENT
+#[derive(Deserialize)]
+struct Params {
+    code: String,
+}
+async fn callback_handler(
+    Query(Params { code }): Query<Params>,
+    extract::State(state): extract::State<AppState>,
+) -> impl IntoResponse {
+    println!("code: {code}");
+
+    Redirect::to("http://localhost:3000/login")
 }
