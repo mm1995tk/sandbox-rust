@@ -58,17 +58,10 @@ fn mk_router(db_client: DatabaseConnection) -> Router {
         .route(
             "/login",
             routing::get(|| async {
-                Html(
-                    "<html>
-
-                <div>
-                  <a href='http://localhost:3000/openid-connect'>
-                    google でログイン
-                  </a>
-                </div>
-                
-                </html>",
-                )
+                use std::fs;
+                let contents = fs::read_to_string("webapi/src/index.html")
+                    .expect("Should have been able to read the file");
+                Html(contents)
             }),
         )
         .layer(middleware::from_fn(log))

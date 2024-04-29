@@ -1,4 +1,4 @@
-use crate::{db::openid_connect_states, framework::AppState};
+use crate::{db::openid_connect_states, framework::AppState, settings::OPENID_CONNECT_STATE_KEY};
 use axum::{
     extract,
     http::StatusCode,
@@ -31,7 +31,7 @@ pub async fn handler(
     };
 
     if let Ok(model) = t.insert(&state.db_client).await {
-        let jar = jar.add(Cookie::new("state-key", sid));
+        let jar = jar.add(Cookie::new(OPENID_CONNECT_STATE_KEY, sid));
 
         (jar, Redirect::to("http://localhost:3000/login")).into_response()
     } else {
