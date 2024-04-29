@@ -51,15 +51,12 @@ async fn handler(
 
     let nonce = ulid::Ulid::new().to_string();
 
-    let client_id = std::env::var("GOOGLE_CLIENT_ID").expect("msg");
-    let redirect_uri = std::env::var("REDIRECT_URI").expect("msg");
-
     let query_params: Vec<(&str, &str)> = vec![
         ("state", &csrf_token),
-        ("client_id", &client_id),
+        ("client_id", &state.env.google_client_id),
         ("response_type", "code"),
         ("scope", "openid email"),
-        ("redirect_uri", &redirect_uri),
+        ("redirect_uri", &state.env.google_redirect_uri),
         ("nonce", &nonce),
     ];
 

@@ -13,6 +13,13 @@ use ulid::Ulid;
 #[derive(Clone)]
 pub struct AppState {
     pub db_client: DatabaseConnection,
+    pub env: Env,
+}
+
+#[derive(Clone)]
+pub struct Env {
+    pub google_client_id: String,
+    pub google_redirect_uri: String,
 }
 
 /// リクエストごとに分離された状態.

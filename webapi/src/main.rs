@@ -12,7 +12,7 @@ use chrono::Utc;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use ulid::Ulid;
 use webapi::{
-    framework::{self, AppState, ReqScopedState},
+    framework::{self, AppState, Env, ReqScopedState},
     openapi::example_route,
     openid_connect,
     settings::SESSION_ID_KEY,
@@ -27,6 +27,18 @@ async fn main() {
     let router = mk_router(connect_db().await);
     if let Err(e) = axum::serve(listener, router).await {
         println!("{}", e);
+    }
+}
+
+fn mk_env() -> Env {
+    let google_client_id = std::env::var("GOOGLE_CLIENT_ID")
+        .expect("環境変数にGOOGLE_CLIENT_IDをセットしてください。");
+    let google_redirect_uri =
+        std::env::var("REDIRECT_URI").expect("環境変数にREDIRECT_URIをセットしてください。");
+
+    Env {
+        google_client_id,
+        google_redirect_uri,
     }
 }
 
@@ -47,7 +59,10 @@ async fn connect_db() -> DatabaseConnection {
 }
 
 fn mk_router(db_client: DatabaseConnection) -> Router {
-    let shared_state = AppState { db_client };
+    let shared_state = AppState {
+        db_client,
+        env: mk_env(),
+    };
 
     Router::new()
         .nest(
