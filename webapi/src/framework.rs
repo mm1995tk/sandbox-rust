@@ -7,6 +7,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
+use serde_json::Value;
 use ulid::Ulid;
 
 /// アプリケーション全体での共有する状態. DBコネクションなどを持たせる.
@@ -14,12 +15,14 @@ use ulid::Ulid;
 pub struct AppState {
     pub db_client: DatabaseConnection,
     pub env: Env,
+    pub discovery_json: Value,
 }
 
 #[derive(Clone)]
 pub struct Env {
     pub google_client_id: String,
     pub google_redirect_uri: String,
+    pub google_client_secret: String,
 }
 
 /// リクエストごとに分離された状態.

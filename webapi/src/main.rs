@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{error::Error, time::Duration};
 
 use axum::{
     extract,
@@ -10,6 +10,7 @@ use axum::{
 use axum_extra::extract::CookieJar;
 use chrono::Utc;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
+use serde_json::Value;
 use ulid::Ulid;
 use webapi::{
     framework::{self, AppState, Env, ReqScopedState},
@@ -19,26 +20,34 @@ use webapi::{
 };
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn Error>> {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
         .await
         .expect("server can run");
-
-    let router = mk_router(connect_db().await);
+    let discovery_json =
+        reqwest::get("https://accounts.google.com/.well-known/openid-configuration")
+            .await?
+            .json::<Value>()
+            .await?;
+    let router = mk_router(connect_db().await, discovery_json);
     if let Err(e) = axum::serve(listener, router).await {
         println!("{}", e);
     }
+    Ok(())
 }
 
 fn mk_env() -> Env {
     let google_client_id = std::env::var("GOOGLE_CLIENT_ID")
         .expect("環境変数にGOOGLE_CLIENT_IDをセットしてください。");
+    let google_client_secret = std::env::var("GOOGLE_CLIENT_SECRET")
+        .expect("環境変数にGOOGLE_CLIENT_SECRETをセットしてください。");
     let google_redirect_uri =
         std::env::var("REDIRECT_URI").expect("環境変数にREDIRECT_URIをセットしてください。");
 
     Env {
         google_client_id,
         google_redirect_uri,
+        google_client_secret
     }
 }
 
@@ -58,10 +67,11 @@ async fn connect_db() -> DatabaseConnection {
     Database::connect(opt).await.expect("db接続に成功すべき")
 }
 
-fn mk_router(db_client: DatabaseConnection) -> Router {
+fn mk_router(db_client: DatabaseConnection, discovery_json: Value) -> Router {
     let shared_state = AppState {
         db_client,
         env: mk_env(),
+        discovery_json,
     };
 
     Router::new()

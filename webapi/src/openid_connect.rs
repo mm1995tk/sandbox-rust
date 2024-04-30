@@ -7,7 +7,7 @@ use axum::{
 use axum::{routing, Router};
 use axum_extra::extract::{cookie::Cookie, CookieJar};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// パス
 pub const PATH: &'static str = "/openid-connect";
@@ -22,18 +22,8 @@ async fn handler(
     extract::State(state): extract::State<AppState>,
     jar: CookieJar,
 ) -> Result<Response, ErrorResponse> {
-    let discovery_json =
-        reqwest::get("https://accounts.google.com/.well-known/openid-configuration")
-            .await
-            .map_err(|_| {
-                println!("err",);
-                (StatusCode::INTERNAL_SERVER_ERROR, "a")
-            })?
-            .json::<Value>()
-            .await
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "b"))?;
-
-    let authorization_endpoint = discovery_json
+    let authorization_endpoint = state
+        .discovery_json
         .get("authorization_endpoint")
         .and_then(|v| v.as_str())
         .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "c"))?;
@@ -82,11 +72,36 @@ async fn callback_handler(
         }
     };
 
+    let token_endpoint = app_state
+        .discovery_json
+        .get("token_endpoint")
+        .and_then(|v| v.as_str())
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "c"))?;
+
+    let client = reqwest::Client::new();
+    let body = json!({
+        "code": params.code,
+        "client_id": &app_state.env.google_client_id,
+        "client_secret": &app_state.env.google_client_secret,
+        "redirect_uri": &app_state.env.google_redirect_uri,
+        "grant_type": "authorization_code"
+    });
+    let res = client
+        .post(token_endpoint)
+        .body(body.to_string())
+        .send()
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "d"))?;
+
+    let tokens = res
+        .json::<Value>()
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "d"))?;
+
+    // println!("{}", tokens.to_string());
+
     // TODO: codeの検証
 
-    let response = (
-        jar.remove(state),
-        Redirect::to("/login"),
-    );
+    let response = (jar.remove(state), Redirect::to("/login"));
     Ok(response.into_response())
 }
