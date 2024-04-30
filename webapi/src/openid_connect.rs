@@ -38,6 +38,7 @@ async fn handler(
         ("scope", "openid email"),
         ("redirect_uri", &state.env.google_redirect_uri),
         ("nonce", &nonce),
+        ("access_type", "offline")
     ];
 
     let client_redirct_url = reqwest::Url::parse_with_params(authorization_endpoint, &query_params)
@@ -98,7 +99,7 @@ async fn callback_handler(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "d"))?;
 
-    // println!("{}", tokens.to_string());
+    println!("{}", tokens.to_string());
 
     // TODO: codeの検証
 
