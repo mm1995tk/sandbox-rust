@@ -20,27 +20,25 @@ pub fn mk_router() -> Router<AppState> {
 
 async fn handler(
     extract::State(state): extract::State<AppState>,
-
     jar: CookieJar,
 ) -> Result<Response, ErrorResponse> {
-    let csrf_token = ulid::Ulid::new().to_string();
-
-    let mut cookie = Cookie::new(OPENID_CONNECT_STATE_KEY, csrf_token.clone());
-    cookie.set_secure(true);
-    cookie.set_http_only(true);
-
-    let jar = jar.add(cookie);
-    let authorization_endpoint =
+    let discovery_json =
         reqwest::get("https://accounts.google.com/.well-known/openid-configuration")
             .await
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "a"))?
+            .map_err(|_| {
+                println!("err",);
+                (StatusCode::INTERNAL_SERVER_ERROR, "a")
+            })?
             .json::<Value>()
             .await
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "b"))?
-            .get("authorization_endpoint")
-            .and_then(|v| v.as_str().map(|x| x.to_string()))
-            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "b"))?;
 
+    let authorization_endpoint = discovery_json
+        .get("authorization_endpoint")
+        .and_then(|v| v.as_str())
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "c"))?;
+
+    let csrf_token = ulid::Ulid::new().to_string();
     let nonce = ulid::Ulid::new().to_string();
 
     let query_params: Vec<(&str, &str)> = vec![
@@ -52,11 +50,18 @@ async fn handler(
         ("nonce", &nonce),
     ];
 
-    let client_redirct_url =
-        reqwest::Url::parse_with_params(&authorization_endpoint, &query_params)
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "b"))?;
+    let client_redirct_url = reqwest::Url::parse_with_params(authorization_endpoint, &query_params)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "d"))?;
 
-    Ok((jar, Redirect::to(&client_redirct_url.to_string())).into_response())
+    let redirect = Redirect::to(client_redirct_url.as_str());
+
+    let jar = jar.add({
+        let mut cookie = Cookie::new(OPENID_CONNECT_STATE_KEY, csrf_token);
+        cookie.set_secure(true);
+        cookie.set_http_only(true);
+        cookie
+    });
+    Ok((jar, redirect).into_response())
 }
 
 #[derive(Deserialize)]
@@ -69,19 +74,19 @@ async fn callback_handler(
     extract::State(app_state): extract::State<AppState>,
     jar: CookieJar,
 ) -> Result<Response, ErrorResponse> {
-    let state = if let Some(v) = jar.get(OPENID_CONNECT_STATE_KEY) {
-        v
-    } else {
-        return Err(StatusCode::UNAUTHORIZED.into());
+    let state = match jar.get(OPENID_CONNECT_STATE_KEY) {
+        Some(state) if state.value() == params.state => state.clone(),
+        _ => {
+            let err_response = (StatusCode::UNAUTHORIZED, "error");
+            return Err(err_response.into());
+        }
     };
-
-    if state.value() != params.state {
-        return Err(StatusCode::UNAUTHORIZED.into());
-    }
-
-    let new_jar = jar.clone().remove(state.clone());
 
     // TODO: codeの検証
 
-    Ok((new_jar, Redirect::to("http://localhost:3000/login")).into_response())
+    let response = (
+        jar.remove(state),
+        Redirect::to("/login"),
+    );
+    Ok(response.into_response())
 }
