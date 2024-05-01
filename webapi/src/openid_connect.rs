@@ -6,7 +6,8 @@ use axum::{
 };
 use axum::{routing, Router};
 use axum_extra::extract::{cookie::Cookie, CookieJar};
-use serde::Deserialize;
+use jsonwebtoken::{decode, jwk::JwkSet, DecodingKey, Validation};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 /// パス
@@ -35,10 +36,10 @@ async fn handler(
         ("state", &csrf_token),
         ("client_id", &state.env.google_client_id),
         ("response_type", "code"),
-        ("scope", "openid email"),
+        ("scope", "openid profile email"),
         ("redirect_uri", &state.env.google_redirect_uri),
         ("nonce", &nonce),
-        ("access_type", "offline")
+        ("access_type", "offline"),
     ];
 
     let client_redirct_url = reqwest::Url::parse_with_params(authorization_endpoint, &query_params)
@@ -97,12 +98,60 @@ async fn callback_handler(
     let tokens = res
         .json::<Value>()
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "d"))?;
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "e"))?;
 
-    println!("{}", tokens.to_string());
+    let id_token = tokens
+        .get("id_token")
+        .and_then(|v| v.as_str())
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "f"))?;
 
-    // TODO: codeの検証
+    let jwks_uri = app_state
+        .discovery_json
+        .get("jwks_uri")
+        .and_then(|v| v.as_str())
+        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "g"))?;
+
+    let jwk_set = reqwest::get(jwks_uri)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "e"))?
+        .json::<JwkSet>()
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "e"))?;
+
+    let mut validation = Validation::new(jsonwebtoken::Algorithm::RS256);
+    validation.set_audience(&[app_state.env.google_client_id]);
+
+    let valid_id_token = if let Some(valid_id_token) = jwk_set
+        .keys
+        .iter()
+        .map(|jwk| {
+            decode::<Claims>(
+                &id_token,
+                &DecodingKey::from_jwk(jwk).expect("base64decodeできること"),
+                &validation,
+            )
+        })
+        .find_map(|item| item.ok())
+    {
+        valid_id_token
+    } else {
+        let err_response = (StatusCode::UNAUTHORIZED, "error");
+        return Err(err_response.into());
+    };
+
+    println!(
+        "login: {}; email: {}",
+        &valid_id_token.claims.name, &valid_id_token.claims.email
+    );
 
     let response = (jar.remove(state), Redirect::to("/login"));
     Ok(response.into_response())
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct Claims {
+    sub: String,
+    name: String,
+    email: String,
+    exp: i64,
 }
