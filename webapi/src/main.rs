@@ -1,10 +1,10 @@
-use std::{error::Error, time::Duration};
+use std::{error::Error, net::SocketAddr, time::Duration};
 
 use axum::{
-    extract,
+    extract::{self, ConnectInfo},
     http::StatusCode,
     middleware,
-    response::{self, Html, Response},
+    response::{self, Html, IntoResponse, Response},
     routing, Router,
 };
 use axum_extra::extract::CookieJar;
@@ -13,7 +13,7 @@ use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use serde_json::Value;
 use ulid::Ulid;
 use webapi::{
-    framework::{self, AppState, Env, ReqScopedState},
+    framework::{self, AppState, Env, Logger, LoggerInterface, ReqScopedState},
     openapi::example_route,
     openid_connect,
     settings::SESSION_ID_KEY,
@@ -29,7 +29,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await?
             .json::<Value>()
             .await?;
-    let router = mk_router(connect_db().await, discovery_json);
+    let router = mk_router(connect_db().await, discovery_json)
+        .into_make_service_with_connect_info::<SocketAddr>();
     if let Err(e) = axum::serve(listener, router).await {
         println!("{}", e);
     }
@@ -47,7 +48,7 @@ fn mk_env() -> Env {
     Env {
         google_client_id,
         google_redirect_uri,
-        google_client_secret
+        google_client_secret,
     }
 }
 
@@ -97,12 +98,19 @@ fn mk_router(db_client: DatabaseConnection, discovery_json: Value) -> Router {
 async fn setup(
     mut req: extract::Request,
     next: middleware::Next,
-) -> Result<response::Response, StatusCode> {
+    // ConnectInfo(addr): ConnectInfo<SocketAddr>
+) -> Result<Response, StatusCode> {
     // CookieJar => クッキー缶　=> クッキーがいっぱい入っている => 他言語だとCookiesみたいなやつ
     let jar = CookieJar::from_headers(req.headers());
     let req_id: Ulid = Ulid::new();
 
-    let mut req_scoped_state = ReqScopedState::new(req_id, None);
+    let remote_addr = &req
+        .extensions()
+        .get::<extract::ConnectInfo<SocketAddr>>()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+        .0;
+
+    let mut req_scoped_state = ReqScopedState::new(req_id, None, &req, &remote_addr);
 
     if let Some(session_id) = jar.get(SESSION_ID_KEY).map(|c| c.value()) {
         req_scoped_state.session = framework::find_session(session_id).await;
@@ -114,14 +122,18 @@ async fn setup(
 }
 
 async fn log(req: extract::Request, next: middleware::Next) -> Result<Response, StatusCode> {
-    let item = req
+    let item = &req
         .extensions()
         .get::<ReqScopedState>()
-        .expect("setup is already done.");
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_owned();
 
-    println!("hi, {}", item.ts);
+    let logger = item.logger();
+
+    logger.info("hi");
     let r = next.run(req).await;
-    println!("bye, {}", Utc::now());
+    logger.info("bye");
+
     return Ok(r);
 }
 
@@ -129,7 +141,7 @@ async fn auth(req: extract::Request, next: middleware::Next) -> Result<Response,
     let item = req
         .extensions()
         .get::<ReqScopedState>()
-        .expect("setup is already done.");
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if item.session.is_some() {
         Ok(next.run(req).await)
