@@ -1,17 +1,13 @@
-use std::{error::Error, fmt::Debug, marker::PhantomData};
-
 use axum::{
-    async_trait,
-    body::Body,
-    extract::{self, ConnectInfo},
-    http::{request::Parts, Response, StatusCode},
-    response::{self, ErrorResponse, IntoResponse},
+    async_trait, extract,
+    http::{request::Parts, StatusCode},
+    response::{self, IntoResponse},
 };
 use chrono::{DateTime, Utc};
-use jsonwebtoken::jwk::JwkSet;
 use sea_orm::DatabaseConnection;
 use serde_json::{json, Map, Value};
 use std::net::SocketAddr;
+use std::{error::Error, fmt::Debug};
 use ulid::Ulid;
 
 /// アプリケーション全体での共有する状態. DBコネクションなどを持たせる.
@@ -139,6 +135,23 @@ impl ReqScopedState {
     }
 }
 
+#[async_trait]
+impl<S> extract::FromRequestParts<S> for ReqScopedState
+where
+    S: Send + Sync,
+    // AppState: FromRef<S>,
+{
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
+        parts
+            .extensions
+            .get::<ReqScopedState>()
+            .cloned()
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+    }
+}
+
 #[derive(Debug)]
 pub enum AppError {
     Unexpected(Box<dyn Error>),
@@ -155,15 +168,13 @@ impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AppError::Unexpected(str) => {
-                println!("Unexpected: {str}");
+                write!(f, "{}", str)
             }
             AppError::Unauthorized(msg) => {
                 let msg = msg.clone();
-                println!("Unauthorized: {}", msg.unwrap_or("no message".into()));
+                write!(f, "Unauthorized: {}", msg.unwrap_or("no message".into()))
             }
         }
-
-        Ok(())
     }
 }
 
@@ -204,21 +215,15 @@ pub struct Session {
 impl<S> extract::FromRequestParts<S> for Session
 where
     S: Send + Sync,
-    // AppState: FromRef<S>,
 {
-    type Rejection = Response<Body>;
+    type Rejection = StatusCode;
 
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-        let ctx = if let Some(item) = parts.extensions.get::<ReqScopedState>() {
-            item.clone()
-        } else {
-            panic!("contextが未設定です")
-        };
-
-        // let app_state = AppState::from_ref(state);
-
-        ctx.session
-            .ok_or((StatusCode::UNAUTHORIZED, "ハズレ").into_response())
+        parts
+            .extensions
+            .get::<ReqScopedState>()
+            .and_then(|item| item.session.clone())
+            .ok_or(StatusCode::UNAUTHORIZED)
     }
 }
 
