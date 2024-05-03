@@ -13,7 +13,7 @@ use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use serde_json::Value;
 use ulid::Ulid;
 use webapi::{
-    framework::{self, AppState, Env, Logger, LoggerInterface, ReqScopedState},
+    framework::{self, logger::LoggerInterface, AppState, Env, ReqScopedState},
     openapi::example_route,
     openid_connect,
     settings::SESSION_ID_KEY,
