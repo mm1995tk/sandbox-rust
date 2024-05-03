@@ -85,10 +85,11 @@ async fn setup(mut req: extract::Request, next: middleware::Next) -> Result<Resp
     let req_scoped_state = ReqScopedState::new(req_id);
     let logger = Logger::new(&req_scoped_state, &req, remote_addr);
 
-    if let Some(session_id) = jar.get(SESSION_ID_KEY).map(|c| c.value()) {
-        if let Some(session) = framework::session::find_session(session_id).await {
-            req.extensions_mut().insert(session);
-        }
+    if let Some(session) = jar
+        .get(SESSION_ID_KEY)
+        .map(|c| framework::session::find_session(c.value()))
+    {
+        req.extensions_mut().insert(session.await);
     }
 
     req.extensions_mut().insert(req_scoped_state);
