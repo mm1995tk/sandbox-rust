@@ -8,10 +8,10 @@ use axum::{
     routing, Router,
 };
 use axum_extra::extract::CookieJar;
-use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use serde_json::Value;
 use ulid::Ulid;
 use webapi::{
+    db,
     framework::{self, env::Env, logger::LoggerInterface, AppState, ReqScopedState},
     openapi::example_route,
     openid_connect,
@@ -21,7 +21,7 @@ use webapi::{
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let env = Env::new();
-    let db_client = connect_db(&env.db_url);
+    let db_client = db::connect(&env.db_url);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000");
     let discovery_json =
         reqwest::get("https://accounts.google.com/.well-known/openid-configuration")
@@ -114,19 +114,4 @@ async fn auth(req: extract::Request, next: middleware::Next) -> Result<Response,
     } else {
         Err(StatusCode::UNAUTHORIZED)
     }
-}
-
-async fn connect_db(url: &str) -> DatabaseConnection {
-    let mut opt = ConnectOptions::new(url);
-    opt.max_connections(100)
-        .min_connections(5)
-        .connect_timeout(Duration::from_secs(8))
-        .acquire_timeout(Duration::from_secs(8))
-        .idle_timeout(Duration::from_secs(8))
-        .max_lifetime(Duration::from_secs(8))
-        .sqlx_logging(true);
-    // .sqlx_logging_level(log::LevelFilter::Info)
-    // .set_schema_search_path("my_schema"); // Setting default PostgreSQL schema
-
-    Database::connect(opt).await.expect("db接続に成功すべき")
 }
