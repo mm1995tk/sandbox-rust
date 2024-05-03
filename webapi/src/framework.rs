@@ -1,20 +1,18 @@
+pub mod env;
 pub mod logger;
 pub mod session;
 pub mod system;
-use self::{
-    session::Session,
-    system::{AuthenticatedUser, Role},
-};
+
+use self::{env::Env, session::Session};
 use axum::{
     async_trait, extract,
     http::{request::Parts, StatusCode},
-    response::{self, IntoResponse},
 };
 use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use serde_json::{json, Map, Value};
+use std::fmt::Debug;
 use std::net::SocketAddr;
-use std::{error::Error, fmt::Debug};
 use ulid::Ulid;
 
 /// アプリケーション全体での共有する状態. DBコネクションなどを持たせる.
@@ -24,13 +22,6 @@ pub struct AppState {
     pub env: Env,
     pub discovery_json: Value,
     // pub jwk_set: JwkSet,
-}
-
-#[derive(Clone)]
-pub struct Env {
-    pub google_client_id: String,
-    pub google_redirect_uri: String,
-    pub google_client_secret: String,
 }
 
 /// リクエストごとに分離された状態.
@@ -79,11 +70,7 @@ impl ReqScopedState {
 }
 
 #[async_trait]
-impl<S> extract::FromRequestParts<S> for ReqScopedState
-where
-    S: Send + Sync,
-    // AppState: FromRef<S>,
-{
+impl<S: Send + Sync> extract::FromRequestParts<S> for ReqScopedState {
     type Rejection = StatusCode;
 
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {

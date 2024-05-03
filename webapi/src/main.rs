@@ -1,19 +1,18 @@
 use std::{error::Error, net::SocketAddr, time::Duration};
 
 use axum::{
-    extract::{self, ConnectInfo},
+    extract,
     http::StatusCode,
     middleware,
-    response::{self, Html, IntoResponse, Response},
+    response::{Html, Response},
     routing, Router,
 };
 use axum_extra::extract::CookieJar;
-use chrono::Utc;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use serde_json::Value;
 use ulid::Ulid;
 use webapi::{
-    framework::{self, logger::LoggerInterface, AppState, Env, ReqScopedState},
+    framework::{self, env::Env, logger::LoggerInterface, AppState, ReqScopedState},
     openapi::example_route,
     openid_connect,
     settings::SESSION_ID_KEY,
@@ -21,60 +20,32 @@ use webapi::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
-        .await
-        .expect("server can run");
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000");
     let discovery_json =
         reqwest::get("https://accounts.google.com/.well-known/openid-configuration")
             .await?
             .json::<Value>()
             .await?;
-    let router = mk_router(connect_db().await, discovery_json)
+
+    let env = Env::new();
+    let shared_state = AppState {
+        db_client: connect_db(&env.db_url).await,
+        env,
+        discovery_json,
+    };
+    let router = mk_router(shared_state)
+        .await
         .into_make_service_with_connect_info::<SocketAddr>();
+
+    let listener = listener.await.expect("server can run");
+
     if let Err(e) = axum::serve(listener, router).await {
         println!("{}", e);
     }
     Ok(())
 }
 
-fn mk_env() -> Env {
-    let google_client_id = std::env::var("GOOGLE_CLIENT_ID")
-        .expect("環境変数にGOOGLE_CLIENT_IDをセットしてください。");
-    let google_client_secret = std::env::var("GOOGLE_CLIENT_SECRET")
-        .expect("環境変数にGOOGLE_CLIENT_SECRETをセットしてください。");
-    let google_redirect_uri =
-        std::env::var("REDIRECT_URI").expect("環境変数にREDIRECT_URIをセットしてください。");
-
-    Env {
-        google_client_id,
-        google_redirect_uri,
-        google_client_secret,
-    }
-}
-
-async fn connect_db() -> DatabaseConnection {
-    let mut opt =
-        ConnectOptions::new("postgresql://localhost:5433/postgres?user=postgres&password=postgres");
-    opt.max_connections(100)
-        .min_connections(5)
-        .connect_timeout(Duration::from_secs(8))
-        .acquire_timeout(Duration::from_secs(8))
-        .idle_timeout(Duration::from_secs(8))
-        .max_lifetime(Duration::from_secs(8))
-        .sqlx_logging(true);
-    // .sqlx_logging_level(log::LevelFilter::Info)
-    // .set_schema_search_path("my_schema"); // Setting default PostgreSQL schema
-
-    Database::connect(opt).await.expect("db接続に成功すべき")
-}
-
-fn mk_router(db_client: DatabaseConnection, discovery_json: Value) -> Router {
-    let shared_state = AppState {
-        db_client,
-        env: mk_env(),
-        discovery_json,
-    };
-
+async fn mk_router(shared_state: AppState) -> Router {
     Router::new()
         .nest(
             example_route::PATH,
@@ -95,11 +66,7 @@ fn mk_router(db_client: DatabaseConnection, discovery_json: Value) -> Router {
         .with_state(shared_state)
 }
 
-async fn setup(
-    mut req: extract::Request,
-    next: middleware::Next,
-    // ConnectInfo(addr): ConnectInfo<SocketAddr>
-) -> Result<Response, StatusCode> {
+async fn setup(mut req: extract::Request, next: middleware::Next) -> Result<Response, StatusCode> {
     // CookieJar => クッキー缶　=> クッキーがいっぱい入っている => 他言語だとCookiesみたいなやつ
     let jar = CookieJar::from_headers(req.headers());
     let req_id: Ulid = Ulid::new();
@@ -148,4 +115,19 @@ async fn auth(req: extract::Request, next: middleware::Next) -> Result<Response,
     } else {
         Err(StatusCode::UNAUTHORIZED)
     }
+}
+
+async fn connect_db(url: &str) -> DatabaseConnection {
+    let mut opt = ConnectOptions::new(url);
+    opt.max_connections(100)
+        .min_connections(5)
+        .connect_timeout(Duration::from_secs(8))
+        .acquire_timeout(Duration::from_secs(8))
+        .idle_timeout(Duration::from_secs(8))
+        .max_lifetime(Duration::from_secs(8))
+        .sqlx_logging(true);
+    // .sqlx_logging_level(log::LevelFilter::Info)
+    // .set_schema_search_path("my_schema"); // Setting default PostgreSQL schema
+
+    Database::connect(opt).await.expect("db接続に成功すべき")
 }
