@@ -3,31 +3,28 @@ use crate::framework::{
     session::Session,
     AppState, ReqScopedState,
 };
-use axum::{
-    extract,
-    response::{self, IntoResponse},
-};
+use axum::{extract::State, Json};
 use serde::Serialize;
 
 /// パス
 pub const PATH: &'static str = "/";
 
 pub async fn handler(
-    extract::State(state): extract::State<AppState>,
+    State(state): State<AppState>,
     ctx: ReqScopedState,
     Session { user }: Session,
     logger: Logger,
-) -> impl IntoResponse {
+) -> Json<ResponseValue> {
     logger.info("hello world");
 
     let resp_value = ResponseValue {
         greeting: format!("hello, {}!", user.name),
     };
 
-    response::Json(resp_value)
+    Json(resp_value)
 }
 
 #[derive(Serialize)]
-struct ResponseValue {
+pub struct ResponseValue {
     greeting: String,
 }
