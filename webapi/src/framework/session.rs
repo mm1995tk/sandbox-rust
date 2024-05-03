@@ -1,10 +1,7 @@
 use axum::{async_trait, extract, http::request::Parts};
 use reqwest::StatusCode;
 
-use super::{
-    system::{AuthenticatedUser, Role},
-    ReqScopedState,
-};
+use super::system::{AuthenticatedUser, Role};
 
 /// セッション
 #[derive(Clone, Debug)]
@@ -23,9 +20,9 @@ where
     async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
         parts
             .extensions
-            .get::<ReqScopedState>()
-            .and_then(|item| item.session.clone())
+            .get::<Session>()
             .ok_or(StatusCode::UNAUTHORIZED)
+            .cloned()
     }
 }
 

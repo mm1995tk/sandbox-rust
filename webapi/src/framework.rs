@@ -3,7 +3,7 @@ pub mod logger;
 pub mod session;
 pub mod system;
 
-use self::{env::Env, session::Session};
+use self::env::Env;
 use axum::{
     async_trait, extract,
     http::{request::Parts, StatusCode},
@@ -28,19 +28,13 @@ pub struct AppState {
 pub struct ReqScopedState {
     pub ts: DateTime<Utc>,
     pub req_id: Ulid,
-    pub session: Option<Session>,
-    // pub log_member: Map<String, Value>,
 }
 
 impl ReqScopedState {
-    pub fn new(req_id: Ulid, session: Option<Session>) -> Self {
+    pub fn new(req_id: Ulid) -> Self {
         let ts = DateTime::from_timestamp_millis(req_id.timestamp_ms() as i64).unwrap();
 
-        Self {
-            req_id,
-            session,
-            ts,
-        }
+        Self { req_id, ts }
     }
 }
 

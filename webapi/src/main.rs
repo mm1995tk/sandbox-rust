@@ -16,6 +16,7 @@ use webapi::{
         self,
         env::Env,
         logger::{Logger, LoggerInterface},
+        session::Session,
         AppState, ReqScopedState,
     },
     openapi::example_route,
@@ -81,13 +82,14 @@ async fn setup(mut req: extract::Request, next: middleware::Next) -> Result<Resp
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
         .0;
 
-    let mut req_scoped_state = ReqScopedState::new(req_id, None);
+    let req_scoped_state = ReqScopedState::new(req_id);
+    let logger = Logger::new(&req_scoped_state, &req, remote_addr);
 
     if let Some(session_id) = jar.get(SESSION_ID_KEY).map(|c| c.value()) {
-        req_scoped_state.session = framework::session::find_session(session_id).await;
+        if let Some(session) = framework::session::find_session(session_id).await {
+            req.extensions_mut().insert(session);
+        }
     }
-
-    let logger = Logger::new(&req_scoped_state, &req, remote_addr);
 
     req.extensions_mut().insert(req_scoped_state);
     req.extensions_mut().insert(logger);
@@ -110,12 +112,7 @@ async fn log(req: extract::Request, next: middleware::Next) -> Result<Response, 
 }
 
 async fn auth(req: extract::Request, next: middleware::Next) -> Result<Response, StatusCode> {
-    let item = req
-        .extensions()
-        .get::<ReqScopedState>()
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    if item.session.is_some() {
+    if let Some(_) = req.extensions().get::<Session>() {
         Ok(next.run(req).await)
     } else {
         Err(StatusCode::UNAUTHORIZED)
