@@ -1,5 +1,10 @@
 pub mod logger;
-
+pub mod session;
+pub mod system;
+use self::{
+    session::Session,
+    system::{AuthenticatedUser, Role},
+};
 use axum::{
     async_trait, extract,
     http::{request::Parts, StatusCode},
@@ -26,12 +31,6 @@ pub struct Env {
     pub google_client_id: String,
     pub google_redirect_uri: String,
     pub google_client_secret: String,
-}
-
-impl ReqScopedState {
-    pub fn logger(&self) -> logger::Logger {
-        logger::Logger(self)
-    }
 }
 
 /// リクエストごとに分離された状態.
@@ -96,91 +95,8 @@ where
     }
 }
 
-#[derive(Debug)]
-pub enum AppError {
-    Unexpected(Box<dyn Error>),
-    Unauthorized(Option<String>),
-}
-
-impl IntoResponse for AppError {
-    fn into_response(self) -> response::Response {
-        todo!()
+impl ReqScopedState {
+    pub fn logger(&self) -> logger::Logger {
+        logger::Logger(self)
     }
-}
-
-impl std::fmt::Display for AppError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AppError::Unexpected(str) => {
-                write!(f, "{}", str)
-            }
-            AppError::Unauthorized(msg) => {
-                let msg = msg.clone();
-                write!(f, "Unauthorized: {}", msg.unwrap_or("no message".into()))
-            }
-        }
-    }
-}
-
-impl Error for AppError {}
-
-/// ユーザー
-pub enum User {
-    /// 認証済みユーザー
-    Authenticated(AuthenticatedUser),
-    /// 認証されていないユーザー
-    Anonymous,
-}
-
-/// 認証済みユーザー
-#[derive(Clone, Debug)]
-pub struct AuthenticatedUser {
-    pub id: String,
-    pub roles: Vec<Role>,
-    pub name: String,
-}
-
-/// 役割
-#[derive(Clone, Debug)]
-pub enum Role {
-    General,
-    Admin,
-    Master,
-}
-
-/// セッション
-#[derive(Clone, Debug)]
-pub struct Session {
-    pub user: AuthenticatedUser,
-}
-
-// ハンドラの引数で指定できるようにするための処理
-#[async_trait]
-impl<S> extract::FromRequestParts<S> for Session
-where
-    S: Send + Sync,
-{
-    type Rejection = StatusCode;
-
-    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-        parts
-            .extensions
-            .get::<ReqScopedState>()
-            .and_then(|item| item.session.clone())
-            .ok_or(StatusCode::UNAUTHORIZED)
-    }
-}
-
-/// sessionを探す
-pub async fn find_session(str: &str) -> Option<Session> {
-    if str == "xxx" {
-        return Some(Session {
-            user: AuthenticatedUser {
-                id: "xxx".to_string(),
-                roles: vec![Role::General],
-                name: "takuya".to_string(),
-            },
-        });
-    }
-    None
 }

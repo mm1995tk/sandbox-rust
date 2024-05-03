@@ -113,7 +113,7 @@ async fn setup(
     let mut req_scoped_state = ReqScopedState::new(req_id, None, &req, &remote_addr);
 
     if let Some(session_id) = jar.get(SESSION_ID_KEY).map(|c| c.value()) {
-        req_scoped_state.session = framework::find_session(session_id).await;
+        req_scoped_state.session = framework::session::find_session(session_id).await;
     }
 
     req.extensions_mut().insert(req_scoped_state);
