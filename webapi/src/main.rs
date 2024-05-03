@@ -1,4 +1,4 @@
-use std::{error::Error, net::SocketAddr, time::Duration};
+use std::{error::Error, net::SocketAddr};
 
 use axum::{
     extract,
@@ -12,7 +12,12 @@ use serde_json::Value;
 use ulid::Ulid;
 use webapi::{
     db,
-    framework::{self, env::Env, logger::LoggerInterface, AppState, ReqScopedState},
+    framework::{
+        self,
+        env::Env,
+        logger::{Logger, LoggerInterface},
+        AppState, ReqScopedState,
+    },
     openapi::example_route,
     openid_connect,
     settings::SESSION_ID_KEY,
@@ -76,25 +81,26 @@ async fn setup(mut req: extract::Request, next: middleware::Next) -> Result<Resp
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
         .0;
 
-    let mut req_scoped_state = ReqScopedState::new(req_id, None, &req, &remote_addr);
+    let mut req_scoped_state = ReqScopedState::new(req_id, None);
 
     if let Some(session_id) = jar.get(SESSION_ID_KEY).map(|c| c.value()) {
         req_scoped_state.session = framework::session::find_session(session_id).await;
     }
 
+    let logger = Logger::new(&req_scoped_state, &req, remote_addr);
+
     req.extensions_mut().insert(req_scoped_state);
+    req.extensions_mut().insert(logger);
 
     Ok(next.run(req).await)
 }
 
 async fn log(req: extract::Request, next: middleware::Next) -> Result<Response, StatusCode> {
-    let item = &req
+    let logger = &req
         .extensions()
-        .get::<ReqScopedState>()
+        .get::<Logger>()
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
         .to_owned();
-
-    let logger = item.logger();
 
     logger.info("hi");
     let r = next.run(req).await;

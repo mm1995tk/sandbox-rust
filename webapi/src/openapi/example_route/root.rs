@@ -1,4 +1,8 @@
-use crate::framework::{AppState, ReqScopedState, session::Session};
+use crate::framework::{
+    logger::{Logger, LoggerInterface},
+    session::Session,
+    AppState, ReqScopedState,
+};
 use axum::{
     extract,
     response::{self, IntoResponse},
@@ -12,7 +16,10 @@ pub async fn handler(
     extract::State(state): extract::State<AppState>,
     ctx: ReqScopedState,
     Session { user }: Session,
+    logger: Logger,
 ) -> impl IntoResponse {
+    logger.info("hello world");
+
     let resp_value = ResponseValue {
         greeting: format!("hello, {}!", user.name),
     };
