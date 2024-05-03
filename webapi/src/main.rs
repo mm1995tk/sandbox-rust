@@ -20,6 +20,8 @@ use webapi::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let env = Env::new();
+    let db_client = connect_db(&env.db_url);
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000");
     let discovery_json =
         reqwest::get("https://accounts.google.com/.well-known/openid-configuration")
@@ -27,21 +29,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .json::<Value>()
             .await?;
 
-    let env = Env::new();
     let shared_state = AppState {
-        db_client: connect_db(&env.db_url).await,
+        db_client: db_client.await,
         env,
         discovery_json,
     };
+
     let router = mk_router(shared_state)
         .await
         .into_make_service_with_connect_info::<SocketAddr>();
 
-    let listener = listener.await.expect("server can run");
+    axum::serve(listener.await?, router).await?;
 
-    if let Err(e) = axum::serve(listener, router).await {
-        println!("{}", e);
-    }
     Ok(())
 }
 
