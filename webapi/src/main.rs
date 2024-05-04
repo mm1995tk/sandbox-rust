@@ -27,8 +27,8 @@ use webapi::{
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let env = Env::new();
-    let db_client = db::connect(&env.db_url);
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000");
+    let db_client = db::connect(&env.db_url).await;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
     let discovery_json =
         reqwest::get("https://accounts.google.com/.well-known/openid-configuration")
             .await?
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .await?;
 
     let shared_state = AppState {
-        db_client: db_client.await,
+        db_client,
         env,
         discovery_json,
     };
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await
         .into_make_service_with_connect_info::<SocketAddr>();
 
-    axum::serve(listener.await?, router).await?;
+    axum::serve(listener, router).await?;
 
     Ok(())
 }
