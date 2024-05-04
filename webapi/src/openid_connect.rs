@@ -1,14 +1,22 @@
-use crate::{framework::AppState, settings::OPENID_CONNECT_STATE_KEY};
+use crate::{
+    framework::AppState,
+    settings::{OPENID_CONNECT_STATE_KEY, SESSION_ID_KEY},
+};
 use axum::{
     extract::{self, Query},
     http::StatusCode,
     response::{ErrorResponse, IntoResponse, Redirect, Response},
 };
 use axum::{routing, Router};
-use axum_extra::extract::{cookie::Cookie, CookieJar};
+use axum_extra::extract::{
+    cookie::{Cookie, Expiration, SameSite},
+    CookieJar,
+};
 use jsonwebtoken::{decode, jwk::JwkSet, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use time::Duration;
+use ulid::Ulid;
 
 /// パス
 pub const PATH: &'static str = "/openid-connect";
@@ -144,7 +152,19 @@ async fn callback_handler(
         &valid_id_token.claims.name, &valid_id_token.claims.email
     );
 
-    let response = (jar.remove(state), Redirect::to("/login"));
+    let response = (
+        jar.add({
+            let mut c = Cookie::new(SESSION_ID_KEY, Ulid::new().to_string());
+            c.set_max_age(Duration::hours(2));
+            c.set_secure(true);
+            c.set_http_only(true);
+            c.set_path("/");
+            c.set_same_site(SameSite::Lax);
+
+            c
+        }),
+        Redirect::to("/login"),
+    );
     Ok(response.into_response())
 }
 
