@@ -1,6 +1,6 @@
 use crate::{
-    framework::AppState,
-    settings::{OPENID_CONNECT_STATE_KEY, SESSION_ID_KEY},
+    framework::{session::mk_cookie, AppState},
+    settings::{OPENID_CONNECT_STATE_KEY, SESSION_EXPIRATION_HOURS, SESSION_ID_KEY},
 };
 use axum::{
     extract::{self, Query},
@@ -74,14 +74,6 @@ async fn callback_handler(
     extract::State(app_state): extract::State<AppState>,
     jar: CookieJar,
 ) -> Result<Response, ErrorResponse> {
-    let state = match jar.get(OPENID_CONNECT_STATE_KEY) {
-        Some(state) if state.value() == params.state => state.clone(),
-        _ => {
-            let err_response = (StatusCode::UNAUTHORIZED, "error");
-            return Err(err_response.into());
-        }
-    };
-
     let token_endpoint = app_state
         .discovery_json
         .get("token_endpoint")
@@ -153,14 +145,9 @@ async fn callback_handler(
     );
 
     let response = (
-        jar.add({
-            let mut c = Cookie::new(SESSION_ID_KEY, Ulid::new().to_string());
-            c.set_max_age(Duration::hours(2));
-            c.set_secure(true);
-            c.set_http_only(true);
+        jar.add(mk_cookie(Ulid::new().to_string())).remove({
+            let mut c = Cookie::from(OPENID_CONNECT_STATE_KEY);
             c.set_path("/");
-            c.set_same_site(SameSite::Lax);
-
             c
         }),
         Redirect::to("/login"),

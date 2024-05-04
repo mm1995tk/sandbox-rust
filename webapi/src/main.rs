@@ -1,14 +1,18 @@
-use std::{error::Error, net::SocketAddr};
+use std::{borrow::Borrow, error::Error, net::SocketAddr};
 
 use axum::{
-    extract,
+    extract::{self, FromRef},
     http::StatusCode,
     middleware,
-    response::{Html, Response},
+    response::{Html, IntoResponse, Response},
     routing, Router,
 };
-use axum_extra::extract::CookieJar;
+use axum_extra::extract::{
+    cookie::{Cookie, SameSite},
+    CookieJar,
+};
 use serde_json::Value;
+use time::Duration;
 use ulid::Ulid;
 use webapi::{
     db,
@@ -16,12 +20,12 @@ use webapi::{
         self,
         env::Env,
         logger::{Logger, LoggerInterface},
-        session::Session,
+        session::{mk_cookie, Session},
         AppState, ReqScopedState,
     },
     openapi::example_route,
     openid_connect,
-    settings::SESSION_ID_KEY,
+    settings::{SESSION_EXPIRATION_HOURS, SESSION_ID_KEY},
 };
 
 #[tokio::main]
@@ -112,8 +116,10 @@ async fn log(req: extract::Request, next: middleware::Next) -> Result<Response, 
 }
 
 async fn auth(req: extract::Request, next: middleware::Next) -> Result<Response, StatusCode> {
-    if let Some(_) = req.extensions().get::<Session>() {
-        Ok(next.run(req).await)
+    if let Some(session) = req.extensions().get::<Session>() {
+        let c = mk_cookie(session.session_id.to_string());
+        let jar = CookieJar::from_headers(req.headers()).add(c);
+        Ok((jar, next.run(req).await).into_response())
     } else {
         Err(StatusCode::UNAUTHORIZED)
     }
