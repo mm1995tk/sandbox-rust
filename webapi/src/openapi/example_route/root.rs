@@ -12,7 +12,7 @@ pub const PATH: &'static str = "/";
 pub async fn handler(
     State(state): State<AppState>,
     ctx: ReqScopedState,
-    Session { user }: Session,
+    Session { user, .. }: Session,
     logger: Logger,
 ) -> Json<ResponseValue> {
     logger.info("hello world");
