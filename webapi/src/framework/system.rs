@@ -1,34 +1,52 @@
-use std::error::Error;
+use std::{error::Error, fmt::Debug};
 
+use super::logger::{Logger, LoggerInterface};
 use axum::response::{IntoResponse, Response};
+use reqwest::StatusCode;
+
+pub struct Panic<T: Into<String>>(pub T);
 
 #[derive(Debug)]
-pub enum AppError {
-    Unexpected(Box<dyn Error>),
-    Unauthorized(Option<String>),
+pub enum AppError<'a> {
+    /// 業務上xxxなはずだからunwrapする時に使う
+    Unexpected(&'a Logger, String),
+    AuthenticationError,
+    AutorizationError(String),
+    /// ワークフローの最中に発生したエラー
+    WorkflowException(StatusCode, String),
 }
 
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        todo!()
+pub trait IntoAppError: Sized {
+    fn into_app_error(self, l: &Logger) -> AppError;
+}
+
+impl<T: Into<String>> IntoAppError for Panic<T> {
+    fn into_app_error(self, l: &Logger) -> AppError {
+        AppError::Unexpected(l, self.0.into())
     }
 }
 
-impl std::fmt::Display for AppError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+pub trait DomainError: Debug + Error + IntoAppError {
+    fn from_panic<T: Into<String>>(e: Panic<T>) -> Self
+    where
+        Self: Sized;
+}
+
+impl<'a> IntoResponse for AppError<'a> {
+    fn into_response(self) -> Response {
         match self {
-            AppError::Unexpected(str) => {
-                write!(f, "{}", str)
-            }
-            AppError::Unauthorized(msg) => {
-                let msg = msg.clone();
-                write!(f, "Unauthorized: {}", msg.unwrap_or("no message".into()))
+            AppError::AuthenticationError => (StatusCode::UNAUTHORIZED, "認証エラー").into_response(),
+            AppError::AutorizationError(msg) => (StatusCode::FORBIDDEN, msg).into_response(),
+            AppError::WorkflowException(code, msg) => (code, msg).into_response(),
+
+            AppError::Unexpected(l, msg) => {
+                l.danger(&msg);
+
+                (StatusCode::INTERNAL_SERVER_ERROR, "内部エラー").into_response()
             }
         }
     }
 }
-
-impl Error for AppError {}
 
 /// ユーザー
 pub enum User {
