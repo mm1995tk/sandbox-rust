@@ -50,3 +50,11 @@ impl<S: Send + Sync> extract::FromRequestParts<S> for ReqScopedState {
             .ok_or(StatusCode::INTERNAL_SERVER_ERROR)
     }
 }
+
+pub struct Meta<'a, Data, CustomProps = NoneOfProps> {
+    pub data: &'a Data,
+    pub version_tag: Ulid,
+    pub custom_props: CustomProps,
+}
+
+pub struct NoneOfProps;
