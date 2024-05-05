@@ -1,18 +1,15 @@
-use std::{borrow::Borrow, error::Error, net::SocketAddr};
+use std::{error::Error, net::SocketAddr};
 
 use axum::{
-    extract::{self, FromRef},
+    extract,
     http::StatusCode,
     middleware,
     response::{Html, IntoResponse, Response},
     routing, Router,
 };
-use axum_extra::extract::{
-    cookie::{Cookie, SameSite},
-    CookieJar,
-};
+use axum_extra::extract::CookieJar;
 use serde_json::Value;
-use time::Duration;
+
 use ulid::Ulid;
 use webapi::{
     db,
@@ -25,7 +22,7 @@ use webapi::{
     },
     openapi::example_route,
     openid_connect,
-    settings::{SESSION_EXPIRATION_HOURS, SESSION_ID_KEY},
+    settings::SESSION_ID_KEY,
 };
 
 #[tokio::main]
