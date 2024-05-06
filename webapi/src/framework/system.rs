@@ -1,15 +1,21 @@
 use super::logger::{Logger, LoggerInterface};
 use axum::response::{IntoResponse, Response};
 use reqwest::StatusCode;
-use std::fmt::Debug;
+use std::{backtrace::Backtrace, fmt::Debug};
 use ulid::Ulid;
 
-pub struct Panic(pub String);
+pub struct Panic(String, Backtrace);
+
+impl Panic {
+    pub fn new<T: ToString>(msg: T) -> Self {
+        Self(msg.to_string(), Backtrace::force_capture())
+    }
+}
 
 #[derive(Debug)]
 pub enum AppError {
     /// 業務上xxxなはずだからunwrapする時に使う
-    Unexpected(Logger, String, String),
+    Unexpected(Logger, String, String, Backtrace),
     AuthenticationError,
     AutorizationError(String),
     /// ワークフローの最中に発生したエラー
@@ -22,7 +28,7 @@ pub trait IntoAppError: Sized {
 
 impl IntoAppError for Panic {
     fn into_app_error(self, l: Logger, req_id: &Ulid) -> AppError {
-        AppError::Unexpected(l, self.0, req_id.to_string())
+        AppError::Unexpected(l, self.0, req_id.to_string(), self.1)
     }
 }
 
@@ -41,8 +47,9 @@ impl IntoResponse for AppError {
             AppError::AutorizationError(msg) => (StatusCode::FORBIDDEN, msg).into_response(),
             AppError::WorkflowException(code, msg) => (code, msg).into_response(),
 
-            AppError::Unexpected(l, msg, req_id) => {
+            AppError::Unexpected(l, msg, req_id, back_trace) => {
                 l.danger(&msg);
+                println!("{back_trace}",);
 
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
