@@ -1,15 +1,15 @@
-use std::{error::Error, fmt::Debug};
-
 use super::logger::{Logger, LoggerInterface};
 use axum::response::{IntoResponse, Response};
 use reqwest::StatusCode;
+use std::fmt::Debug;
+use ulid::Ulid;
 
 pub struct Panic(pub String);
 
 #[derive(Debug)]
 pub enum AppError {
     /// 業務上xxxなはずだからunwrapする時に使う
-    Unexpected(Logger, String),
+    Unexpected(Logger, String, String),
     AuthenticationError,
     AutorizationError(String),
     /// ワークフローの最中に発生したエラー
@@ -17,12 +17,12 @@ pub enum AppError {
 }
 
 pub trait IntoAppError: Sized {
-    fn into_app_error(self, l: Logger) -> AppError;
+    fn into_app_error(self, l: Logger, req_id: &Ulid) -> AppError;
 }
 
 impl IntoAppError for Panic {
-    fn into_app_error(self, l: Logger) -> AppError {
-        AppError::Unexpected(l, self.0)
+    fn into_app_error(self, l: Logger, req_id: &Ulid) -> AppError {
+        AppError::Unexpected(l, self.0, req_id.to_string())
     }
 }
 
@@ -41,10 +41,14 @@ impl IntoResponse for AppError {
             AppError::AutorizationError(msg) => (StatusCode::FORBIDDEN, msg).into_response(),
             AppError::WorkflowException(code, msg) => (code, msg).into_response(),
 
-            AppError::Unexpected(l, msg) => {
+            AppError::Unexpected(l, msg, req_id) => {
                 l.danger(&msg);
 
-                (StatusCode::INTERNAL_SERVER_ERROR, "内部エラー").into_response()
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("内部エラー: {}", req_id),
+                )
+                    .into_response()
             }
         }
     }
