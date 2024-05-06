@@ -74,6 +74,12 @@ async fn callback_handler(
     extract::State(app_state): extract::State<AppState>,
     jar: CookieJar,
 ) -> Result<Response, ErrorResponse> {
+    if let Some(state) = jar.get(OPENID_CONNECT_STATE_KEY).map(|c| c.value()) {
+        if state != params.state.as_str() {
+            return Err(StatusCode::FORBIDDEN.into());
+        }
+    }
+
     let token_endpoint = app_state
         .discovery_json
         .get("token_endpoint")
