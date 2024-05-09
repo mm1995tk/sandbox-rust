@@ -38,7 +38,9 @@ impl Logger {
             }
         }
 
-        Logger(Map::from_iter(pairs.iter().map(|(k, v)| (k.to_string(), json!(v)))).into())
+        Logger(Map::from_iter(
+            pairs.iter().map(|(k, v)| (k.to_string(), json!(v))),
+        ))
     }
 
     fn log(mut map: Map<String, Value>, level: LogLevel, item: &str) {

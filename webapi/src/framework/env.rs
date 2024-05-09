@@ -24,3 +24,9 @@ impl Env {
         }
     }
 }
+
+impl Default for Env {
+    fn default() -> Self {
+        Self::new()
+    }
+}

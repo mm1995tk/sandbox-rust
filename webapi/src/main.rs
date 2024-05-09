@@ -109,7 +109,7 @@ async fn log(req: extract::Request, next: middleware::Next) -> Result<Response, 
     let r = next.run(req).await;
     logger.info("bye");
 
-    return Ok(r);
+     Ok(r)
 }
 
 async fn auth(req: extract::Request, next: middleware::Next) -> Result<Response, StatusCode> {

@@ -1,6 +1,6 @@
 use crate::{
     framework::{session::mk_cookie, AppState},
-    settings::{OPENID_CONNECT_STATE_KEY, SESSION_EXPIRATION_HOURS, SESSION_ID_KEY},
+    settings::OPENID_CONNECT_STATE_KEY,
 };
 use axum::{
     extract::{self, Query},
@@ -8,18 +8,14 @@ use axum::{
     response::{ErrorResponse, IntoResponse, Redirect, Response},
 };
 use axum::{routing, Router};
-use axum_extra::extract::{
-    cookie::{Cookie, Expiration, SameSite},
-    CookieJar,
-};
+use axum_extra::extract::{cookie::Cookie, CookieJar};
 use jsonwebtoken::{decode, jwk::JwkSet, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use time::Duration;
 use ulid::Ulid;
 
 /// パス
-pub const PATH: &'static str = "/openid-connect";
+pub const PATH: &str = "/openid-connect";
 
 pub fn mk_router() -> Router<AppState> {
     Router::new()
@@ -132,7 +128,7 @@ async fn callback_handler(
         .iter()
         .map(|jwk| {
             decode::<Claims>(
-                &id_token,
+                id_token,
                 &DecodingKey::from_jwk(jwk).expect("base64decodeできること"),
                 &validation,
             )
