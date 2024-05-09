@@ -2,7 +2,6 @@ pub mod env;
 pub mod logger;
 pub mod session;
 pub mod system;
-
 use self::env::Env;
 use axum::{
     async_trait, extract,
@@ -12,13 +11,14 @@ use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use serde_json::Value;
 use std::fmt::Debug;
+use std::ops::Deref;
 use ulid::Ulid;
 
 /// アプリケーション全体での共有する状態. DBコネクションなどを持たせる.
 #[derive(Clone)]
 pub struct AppState {
     pub db_client: DatabaseConnection,
-    pub env: Env,
+    pub env: Immutable<Env>,
     pub discovery_json: Value,
     // pub jwk_set: JwkSet,
 }
@@ -58,3 +58,14 @@ pub struct Meta<'a, Data, CustomProps = NoneOfProps> {
 }
 
 pub struct NoneOfProps;
+
+#[derive(Debug, Clone)]
+pub struct Immutable<T>(T);
+
+impl<T> Deref for Immutable<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}

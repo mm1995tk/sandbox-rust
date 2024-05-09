@@ -121,7 +121,7 @@ async fn callback_handler(
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "e"))?;
 
     let mut validation = Validation::new(jsonwebtoken::Algorithm::RS256);
-    validation.set_audience(&[app_state.env.google_client_id]);
+    validation.set_audience(&[&app_state.env.google_client_id]);
 
     let valid_id_token = if let Some(valid_id_token) = jwk_set
         .keys
