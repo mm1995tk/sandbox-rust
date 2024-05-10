@@ -1,11 +1,15 @@
 use crate::{
-    framework::{session::mk_cookie, AppState},
+    framework::{
+        logger::Logger,
+        session::mk_cookie,
+        system::{AppError, IntoAppError, Panic},
+        AppState, ReqScopedState,
+    },
     settings::OPENID_CONNECT_STATE_KEY,
 };
 use axum::{
     extract::{self, Query},
-    http::StatusCode,
-    response::{ErrorResponse, IntoResponse, Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
 };
 use axum::{routing, Router};
 use axum_extra::extract::{cookie::Cookie, CookieJar};
@@ -25,13 +29,15 @@ pub fn mk_router() -> Router<AppState> {
 
 async fn handler(
     extract::State(state): extract::State<AppState>,
+    ctx: ReqScopedState,
     jar: CookieJar,
-) -> Result<Response, ErrorResponse> {
+    logger: Logger,
+) -> Result<Response, AppError> {
     let authorization_endpoint = state
         .discovery_json
         .get("authorization_endpoint")
         .and_then(|v| v.as_str())
-        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "c"))?;
+        .ok_or(Panic::new("authorization_endpointが見つからない".to_string()).into_app_error(logger.clone(), &ctx.req_id))?;
 
     let csrf_token = ulid::Ulid::new().to_string();
     let nonce = ulid::Ulid::new().to_string();
@@ -47,7 +53,7 @@ async fn handler(
     ];
 
     let client_redirct_url = reqwest::Url::parse_with_params(authorization_endpoint, &query_params)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "d"))?;
+        .map_err(|e| Panic::new(e).into_app_error(logger.clone(), &ctx.req_id))?;
 
     let redirect = Redirect::to(client_redirct_url.as_str());
 
@@ -69,92 +75,139 @@ async fn callback_handler(
     Query(params): Query<Params>,
     extract::State(app_state): extract::State<AppState>,
     jar: CookieJar,
-) -> Result<Response, ErrorResponse> {
-    if let Some(state) = jar.get(OPENID_CONNECT_STATE_KEY).map(|c| c.value()) {
-        if state != params.state.as_str() {
-            return Err(StatusCode::FORBIDDEN.into());
-        }
+    ctx: ReqScopedState,
+    logger: Logger,
+) -> Result<Response, AppError> {
+    validate_state_hash(&params.state, &jar)?;
+
+    let tokens = get_tokens(&params.code, &app_state, &ctx, &logger).await?;
+    let valid_id_token = extract_id_token(&tokens, &app_state, &ctx, &logger).await?;
+
+    println!(
+        "login: {}; email: {}",
+        &valid_id_token.name, &valid_id_token.email
+    );
+
+    let response = (
+        add_session_id(remove_state_hash(jar)),
+        Redirect::to("/login"),
+    );
+
+    Ok(response.into_response())
+}
+
+fn validate_state_hash(state: &str, jar: &CookieJar) -> Result<(), AppError> {
+    let state_in_cookie =
+        jar.get(OPENID_CONNECT_STATE_KEY)
+            .map(|c| c.value())
+            .ok_or(AppError::AutorizationError(
+                "state値がcookieに含まれていない".to_string(),
+            ))?;
+
+    if state != state_in_cookie {
+        return Err(AppError::AutorizationError("不正なstate値".to_string()));
     }
 
+    Ok(())
+}
+
+async fn get_tokens(
+    code: &str,
+    app_state: &AppState,
+    ctx: &ReqScopedState,
+    logger: &Logger,
+) -> Result<Value, AppError> {
     let token_endpoint = app_state
         .discovery_json
         .get("token_endpoint")
         .and_then(|v| v.as_str())
-        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "c"))?;
+        .ok_or(
+            Panic::new("token_endpointが見つからない".to_string())
+                .into_app_error(logger.clone(), &ctx.req_id),
+        )?;
 
-    let client = reqwest::Client::new();
     let body = json!({
-        "code": params.code,
+        "code": code,
         "client_id": &app_state.env.google_client_id,
         "client_secret": &app_state.env.google_client_secret,
         "redirect_uri": &app_state.env.google_redirect_uri,
         "grant_type": "authorization_code"
     });
-    let res = client
+
+    let error_response = |e| Panic::new(e).into_app_error(logger.clone(), &ctx.req_id);
+
+    let res = reqwest::Client::new()
         .post(token_endpoint)
         .body(body.to_string())
         .send()
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "d"))?;
+        .map_err(error_response)?;
 
-    let tokens = res
-        .json::<Value>()
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "e"))?;
+    res.json::<Value>().await.map_err(error_response)
+}
+
+async fn extract_id_token(
+    tokens: &Value,
+    app_state: &AppState,
+    ctx: &ReqScopedState,
+    logger: &Logger,
+) -> Result<Claims, AppError> {
+    let error_response =
+        |e: &str| Panic::new(e.to_string()).into_app_error(logger.clone(), &ctx.req_id);
 
     let id_token = tokens
         .get("id_token")
         .and_then(|v| v.as_str())
-        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "f"))?;
+        .ok_or(error_response("token_endpointが見つからない"))?;
 
     let jwks_uri = app_state
         .discovery_json
         .get("jwks_uri")
         .and_then(|v| v.as_str())
-        .ok_or((StatusCode::INTERNAL_SERVER_ERROR, "g"))?;
+        .ok_or(error_response("jwks_uriが見つからない"))?;
+
+    let error_response = |e| Panic::new(e).into_app_error(logger.clone(), &ctx.req_id);
 
     let jwk_set = reqwest::get(jwks_uri)
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "e"))?
+        .map_err(error_response)?
         .json::<JwkSet>()
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "e"))?;
+        .map_err(error_response)?;
 
-    let mut validation = Validation::new(jsonwebtoken::Algorithm::RS256);
-    validation.set_audience(&[&app_state.env.google_client_id]);
-
-    let valid_id_token = if let Some(valid_id_token) = jwk_set
-        .keys
-        .iter()
-        .map(|jwk| {
-            decode::<Claims>(
-                id_token,
-                &DecodingKey::from_jwk(jwk).expect("base64decodeできること"),
-                &validation,
-            )
-        })
-        .find_map(|item| item.ok())
-    {
-        valid_id_token
-    } else {
-        let err_response = (StatusCode::UNAUTHORIZED, "error");
-        return Err(err_response.into());
+    let validation = {
+        let mut tmp = Validation::new(jsonwebtoken::Algorithm::RS256);
+        tmp.set_audience(&[&app_state.env.google_client_id]);
+        tmp
     };
 
-    println!(
-        "login: {}; email: {}",
-        &valid_id_token.claims.name, &valid_id_token.claims.email
-    );
+    let decode_claims = |jwk| {
+        decode::<Claims>(
+            id_token,
+            &DecodingKey::from_jwk(jwk).expect("base64decodeできること"),
+            &validation,
+        )
+    };
 
-    let response = (
-        jar.add(mk_cookie(Ulid::new().to_string())).remove({
-            let mut c = Cookie::from(OPENID_CONNECT_STATE_KEY);
-            c.set_path("/");
-            c
-        }),
-        Redirect::to("/login"),
-    );
-    Ok(response.into_response())
+    jwk_set
+        .keys
+        .iter()
+        .map(decode_claims)
+        .find_map(|item| item.ok())
+        .ok_or(AppError::AuthenticationError)
+        .map(|item| item.claims)
+}
+
+fn add_session_id(jar: CookieJar) -> CookieJar {
+    jar.add(mk_cookie(Ulid::new().to_string()))
+}
+
+fn remove_state_hash(jar: CookieJar) -> CookieJar {
+    jar.remove({
+        let mut c = Cookie::from(OPENID_CONNECT_STATE_KEY);
+        c.set_path("/");
+        c
+    })
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
