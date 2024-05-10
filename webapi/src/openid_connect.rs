@@ -37,7 +37,10 @@ async fn handler(
         .discovery_json
         .get("authorization_endpoint")
         .and_then(|v| v.as_str())
-        .ok_or(Panic::new("authorization_endpointが見つからない".to_string()).into_app_error(logger.clone(), &ctx.req_id))?;
+        .ok_or(
+            Panic::new("authorization_endpointが見つからない".to_string())
+                .into_app_error(logger.clone(), &ctx.req_id),
+        )?;
 
     let csrf_token = ulid::Ulid::new().to_string();
     let nonce = ulid::Ulid::new().to_string();
@@ -136,14 +139,15 @@ async fn get_tokens(
 
     let error_response = |e| Panic::new(e).into_app_error(logger.clone(), &ctx.req_id);
 
-    let res = reqwest::Client::new()
+    reqwest::Client::new()
         .post(token_endpoint)
         .body(body.to_string())
         .send()
         .await
-        .map_err(error_response)?;
-
-    res.json::<Value>().await.map_err(error_response)
+        .map_err(error_response)?
+        .json::<Value>()
+        .await
+        .map_err(error_response)
 }
 
 async fn extract_id_token(
