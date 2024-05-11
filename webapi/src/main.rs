@@ -1,4 +1,4 @@
-use std::{error::Error, net::SocketAddr};
+use std::{error::Error, net::SocketAddr, time::Duration};
 
 use axum::{
     extract,
@@ -9,6 +9,7 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use serde_json::Value;
+use tower_http::timeout::TimeoutLayer;
 use ulid::Ulid;
 use webapi::{
     db,
@@ -21,7 +22,7 @@ use webapi::{
     },
     openapi::example_route,
     openid_connect,
-    settings::SESSION_ID_KEY,
+    settings::{SESSION_ID_KEY, TIMEOUT_DURATION},
 };
 
 #[tokio::main]
@@ -67,6 +68,7 @@ async fn mk_router(shared_state: AppState) -> Router {
             }),
         )
         .layer(cors::mk_cors_layer())
+        .layer(TimeoutLayer::new(Duration::from_secs(TIMEOUT_DURATION)))
         .layer(middleware::from_fn(log))
         .layer(middleware::from_fn(setup))
         .with_state(shared_state)
