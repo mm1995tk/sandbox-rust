@@ -67,10 +67,10 @@ async fn mk_router(shared_state: AppState) -> Router {
                 Html(contents)
             }),
         )
-        .layer(mk_cors_layer())
         .layer(TimeoutLayer::new(Duration::from_secs(TIMEOUT_DURATION)))
         .layer(middleware::from_fn(log))
         .layer(middleware::from_fn(setup))
+        .layer(mk_cors_layer())
         .with_state(shared_state)
 }
 
