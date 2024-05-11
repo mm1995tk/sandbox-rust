@@ -9,12 +9,11 @@ use axum::{
 };
 use axum_extra::extract::CookieJar;
 use serde_json::Value;
-
 use ulid::Ulid;
 use webapi::{
     db,
     framework::{
-        self,
+        self, cors,
         env::Env,
         logger::{Logger, LoggerInterface},
         session::{mk_cookie, Session},
@@ -67,6 +66,7 @@ async fn mk_router(shared_state: AppState) -> Router {
                 Html(contents)
             }),
         )
+        .layer(cors::mk_cors_layer())
         .layer(middleware::from_fn(log))
         .layer(middleware::from_fn(setup))
         .with_state(shared_state)
@@ -109,7 +109,7 @@ async fn log(req: extract::Request, next: middleware::Next) -> Result<Response, 
     let r = next.run(req).await;
     logger.info("bye");
 
-     Ok(r)
+    Ok(r)
 }
 
 async fn auth(req: extract::Request, next: middleware::Next) -> Result<Response, StatusCode> {
