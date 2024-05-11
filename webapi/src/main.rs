@@ -2,19 +2,19 @@ use std::{error::Error, net::SocketAddr, time::Duration};
 
 use axum::{
     extract,
-    http::StatusCode,
+    http::{HeaderValue, StatusCode},
     middleware,
     response::{Html, IntoResponse, Response},
     routing, Router,
 };
 use axum_extra::extract::CookieJar;
 use serde_json::Value;
-use tower_http::timeout::TimeoutLayer;
+use tower_http::{cors::CorsLayer, timeout::TimeoutLayer};
 use ulid::Ulid;
 use webapi::{
     db,
     framework::{
-        self, cors,
+        self,
         env::Env,
         logger::{Logger, LoggerInterface},
         session::{mk_cookie, Session},
@@ -22,7 +22,7 @@ use webapi::{
     },
     openapi::example_route,
     openid_connect,
-    settings::{SESSION_ID_KEY, TIMEOUT_DURATION},
+    settings::{CORS_ALLOWED_ORIGINS, SESSION_ID_KEY, TIMEOUT_DURATION},
 };
 
 #[tokio::main]
@@ -67,7 +67,7 @@ async fn mk_router(shared_state: AppState) -> Router {
                 Html(contents)
             }),
         )
-        .layer(cors::mk_cors_layer())
+        .layer(mk_cors_layer())
         .layer(TimeoutLayer::new(Duration::from_secs(TIMEOUT_DURATION)))
         .layer(middleware::from_fn(log))
         .layer(middleware::from_fn(setup))
@@ -122,4 +122,12 @@ async fn auth(req: extract::Request, next: middleware::Next) -> Result<Response,
     } else {
         Err(StatusCode::UNAUTHORIZED)
     }
+}
+
+fn mk_cors_layer() -> CorsLayer {
+    CorsLayer::new().allow_origin(CORS_ALLOWED_ORIGINS.map(|origin| {
+        origin
+            .parse::<HeaderValue>()
+            .expect("originをパースできる必要がある")
+    }))
 }
