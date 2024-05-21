@@ -216,8 +216,15 @@ fn remove_state_hash(jar: CookieJar) -> CookieJar {
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    sub: String,
-    name: String,
+    aud: String,
     email: String,
+    email_verified: bool,
     exp: i64,
+    family_name: Option<String>,
+    given_name: Option<String>,
+    iat: i64,
+    iss: String,
+    name: String,
+    picture: String,
+    sub: String,
 }
